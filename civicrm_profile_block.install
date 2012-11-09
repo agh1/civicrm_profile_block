@@ -1,0 +1,29 @@
+<?php
+
+/**
+ * Implementation of hook_schema().
+ */
+function civicrm_profile_block_schema() {
+  $schema['civicrm_profile_block'] = array(
+    'description' => 'Stores link between CiviCRM profile block IDs and the profiles',
+    'fields' => array(
+      'pbid' => array(
+        'type' => 'int',
+        'unsigned' => true,
+        'not_null' => true,
+        'default' => 0,
+        'description' => 'The ID of the CiviCRM profile block',
+      ),
+      'uf_group_id' => array(
+        'type' => 'int',
+        'unsigned' => true,
+        'not_null' => true,
+        'default' => 0,
+        'description' => 'The ID of the CiviCRM profile',
+      ),
+    ),
+    'primary key' => array('pbid'),
+  );
+  
+  return $schema;
+}

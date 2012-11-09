@@ -1,0 +1,5 @@
+name = CiviCRM Profile Block
+description = Adds a block for a CiviCRM Profile
+core = 7.x
+dependencies[] = civicrm
+package = CiviCRM

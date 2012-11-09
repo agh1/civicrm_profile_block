@@ -1,0 +1,164 @@
+<?php
+
+/**
+ * Implementation of hook_block_info().
+ */
+function civicrm_profile_block_block_info() {
+  $pblocks = db_select('civicrm_profile_block', 'cpb')
+  ->fields('cpb', array('pbid', 'uf_group_id'))
+  ->execute()
+  ->fetchAllAssoc('pbid');
+  
+  civicrm_initialize();
+  require_once 'CRM/Core/BAO/UFGroup.php';
+  
+  $newblock = 0;
+  $i = 0;
+  foreach ($pblocks as $pblock) {
+    $blocks["civicrm_profile_block_{$pblock->pbid}"] = array(
+      'info' => t("CiviCRM Profile Block") . " $i",
+      'status' => false,
+      'weight' => 0,
+    );
+    
+    if ($pblock->uf_group_id) {
+      $profiletitle = CRM_Core_BAO_UFGroup::getTitle((int)$pblock->uf_group_id);
+      if ($profiletitle) {
+        $blocks["civicrm_profile_block_{$pblock->pbid}"]['info'] = $profiletitle;
+      }
+    }
+    $newblock = ($pblock->pbid >= $newblock) ? $pblock->pbid + 1 : $newblock;
+    
+    $i++;
+  }
+
+  $blocks["civicrm_profile_block_$newblock"] = array(
+    'info' => t("New CiviCRM Profile Block"),
+    'status' => false,
+    'weight' => 0,
+  );
+
+  return $blocks;
+}
+
+/**
+ * Implementation of hook_block_configure().
+ */
+function civicrm_profile_block_block_configure($delta) {
+  $form = array();
+  $allUFGroups = array();
+  civicrm_initialize();
+  require_once 'CRM/Core/BAO/UFGroup.php';
+  $allUFGroups = CRM_Core_BAO_UFGroup::getModuleUFGroup();
+  if (empty($allUFGroups)) {
+    return;
+  }
+  $profile_options = array('' => '- none -');
+  foreach ($allUFGroups as $id => $profile) {
+    $groupTypes = CRM_UF_Page_Group::extractGroupTypes($profile['group_type']);
+    $groupComponents = array('Contribution', 'Membership', 'Activity', 'Participant');
+
+    // drop profile if profile group_type is Contribution, Membership, Activities or Participant
+    $componentFound = array_intersect($groupComponents, array_keys($groupTypes));
+    if (empty($componentFound)) {
+      $profile_options[$id] = $profile['title'];
+    }
+  }
+  $form['pick_profile'] = array(
+    '#type' => 'select',
+    '#options' => $profile_options,
+  );
+  
+  $groupfind = db_select('civicrm_profile_block', 'cpb')
+    ->fields('cpb', array('uf_group_id'))
+    ->condition('pbid', (int)substr($delta, 21))
+    ->execute()
+    ->fetchAssoc();
+    
+  if ($groupfind['uf_group_id']) {
+    $form['pick_profile']['#default_value'] = $groupfind['uf_group_id'];
+  }
+  
+  return $form;
+}
+
+/**
+ * Implementation of hook_block_save().
+ */
+function civicrm_profile_block_block_save($delta = '', $edit = array()) {
+  db_delete('civicrm_profile_block')
+    ->condition('pbid', (int)substr($delta, 21))
+    ->execute();
+  
+  if ($edit['pick_profile']) {
+    db_insert('civicrm_profile_block')
+      ->fields(array(
+        'pbid' => (int)substr($delta, 21),
+        'uf_group_id' => (int)$edit['pick_profile'],
+      ))
+      ->execute();
+  }
+    
+  cache_clear_all();
+  return;
+}
+
+/**
+ * Implementation of hook_block_view().
+ */
+function civicrm_profile_block_block_view($delta = '') {
+
+  $groupfind = db_select('civicrm_profile_block', 'cpb')
+    ->fields('cpb', array('uf_group_id'))
+    ->condition('pbid', (int)substr($delta, 21))
+    ->execute()
+    ->fetchAssoc();
+    
+  if ($groupfind['uf_group_id']) {
+    $gid = $groupfind['uf_group_id'];
+  }
+  else {
+    return;
+  }
+
+// Mostly lifted from /CRM/Core/BAO/UFGroup.php (where it's preparing the HTML snippet)
+
+  civicrm_initialize();
+  require_once 'CRM/Core/Config.php';
+  $config = CRM_Core_Config::singleton();
+
+  // reassign resource base to be the full url, CRM-4660
+  $config->resourceBase = $config->userFrameworkResourceURL;
+  $config->useFrameworkRelativeBase = $config->userFrameworkBaseURL;
+
+  $controller = new CRM_Core_Controller_Simple('CRM_Profile_Form_Edit', ts('Create'), CRM_Core_Action::ADD,
+    FALSE, FALSE, TRUE
+  );
+  $controller->reset();
+  $controller->process();
+  $controller->set('gid', $gid);
+  $controller->setEmbedded(TRUE);
+  $controller->run();
+  $template = CRM_Core_Smarty::singleton();
+  $template->assign('gid', $gid);
+  $template->assign('tplFile', 'CRM/Profile/Form/Edit.tpl');
+  $profile = trim($template->fetch('CRM/common/commonCSS.tpl'));
+  $profile .= trim($template->fetch('CRM/Form/default.tpl'));
+
+  // not sure how to circumvent our own navigation system to generate the right form url
+  $urlReplaceWith = 'civicrm/profile/create&amp;gid=' . $gid . '&amp;reset=1';
+  if ($config->userSystem->is_drupal && $config->cleanURL) {
+    $urlReplaceWith = 'civicrm/profile/create?gid=' . $gid . '&amp;reset=1';
+  }
+  $profile = str_replace('civicrm/admin/uf/group', $urlReplaceWith, $profile);
+
+  // add jquery files
+  $profile = CRM_Utils_String::addJqueryFiles($profile);
+
+  // prevent jquery conflict
+  $profile .= '<script type="text/javascript">jQuery.noConflict(true);</script>';
+  
+  $block['subject'] = CRM_Core_BAO_UFGroup::getTitle($gid);
+  $block['content'] = $profile;
+  return $block; 
+}
